@@ -1,10 +1,8 @@
 name: Update FRED Data
 
 on:
-  # Run on the first Friday of every month at 9am ET (after BLS jobs report)
   schedule:
-    - cron: '0 14 * * 5'   # Every Friday 2pm UTC = 9am ET
-  # Also allow manual trigger from GitHub UI with one click
+    - cron: '0 14 * * 5'
   workflow_dispatch:
 
 jobs:
@@ -32,44 +30,47 @@ jobs:
 
           API_KEY = os.environ["FRED_API_KEY"]
           BASE = "https://api.stlouisfed.org/fred/series/observations"
-
           cutoff = (datetime.now() - timedelta(days=365*10)).strftime("%Y-%m-%d")
 
           SERIES = {
-            "payrolls":  "PAYEMS",
-            "unrate":    "UNRATE",
-            "u6":        "U6RATE",
-            "lfpr":      "CIVPART",
-            "primeAge":  "LNS12300060",
-             "wages":     "AHETPI",
-            "openings":  "JTSJOL",
-            "quits":     "JTSQUR",
-            "hires":     "JTSHIR",
-            "layoffs":   "JTSLDR",
-            "sConstruct":"USCONS",
-            "sEduHealth":"USEHS",
-            "sLeisure":  "USLAH",
-            "sProfBus":  "USPBS",
-            "sRetail":   "USTRADE",
-            "sGovt":     "USGVT",
-            "sManuf":    "MANEMP",
-            "sFinancial":"USFIRE",
+            "payrolls":   "PAYEMS",
+            "unrate":     "UNRATE",
+            "u6":         "U6RATE",
+            "lfpr":       "CIVPART",
+            "primeAge":   "LNS12300060",
+            "wages":      "AHETPI",
+            "openings":   "JTSJOL",
+            "quits":      "JTSQUR",
+            "hires":      "JTSHIR",
+            "layoffs":    "JTSLDR",
+            "sConstruct": "USCONS",
+            "sEduHealth": "USEHS",
+            "sLeisure":   "USLAH",
+            "sProfBus":   "USPBS",
+            "sRetail":    "USTRADE",
+            "sGovt":      "CES9000000001",
+            "sManuf":     "MANEMP",
+            "sFinancial": "USFIRE",
           }
 
           raw = {}
           for key, sid in SERIES.items():
             print(f"Fetching {sid}...")
-            r = requests.get(BASE, params={
-              "series_id": sid,
-              "api_key": API_KEY,
-              "file_type": "json",
-              "observation_start": cutoff,
-            })
-            r.raise_for_status()
-            data = r.json()
-            raw[key] = {o["date"]: float(o["value"]) for o in data["observations"] if o["value"] != "."}
+            try:
+              r = requests.get(BASE, params={
+                "series_id": sid,
+                "api_key": API_KEY,
+                "file_type": "json",
+                "observation_start": cutoff,
+              })
+              r.raise_for_status()
+              data = r.json()
+              raw[key] = {o["date"]: float(o["value"]) for o in data["observations"] if o["value"] != "."}
+              print(f"  OK: {len(raw[key])} observations")
+            except Exception as e:
+              print(f"  WARNING: {sid} failed ({e}), skipping")
+              raw[key] = {}
 
-          # Build aligned monthly array
           all_dates = sorted(set(d for vals in raw.values() for d in vals.keys()))
           mo_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
@@ -82,7 +83,6 @@ jobs:
               row[key] = raw[key].get(ym, None)
             rows.append(row)
 
-          # Compute derived fields
           for i, row in enumerate(rows):
             p = rows[i-1] if i > 0 else None
             p12 = rows[i-12] if i >= 12 else None
@@ -98,11 +98,10 @@ jobs:
           with open("fred-data.json", "w") as f:
             json.dump(output, f, separators=(',', ':'))
 
-          print(f"Done. {len(rows)} months saved to fred-data.json")
-          print(f"Last month: {rows[-1]['ym']} payrollMoM={rows[-1]['payrollMoM']}")
+          print(f"Done. {len(rows)} months saved.")
           PYEOF
 
-      - name: Commit and push fred-data.json
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
